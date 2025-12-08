@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>曲流互動小遊戲：護岸與聚落風險</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      background: #f3f3f3;
+    }
+    #game-container {
+      display: flex;
+      height: 100vh;
+      padding: 10px;
+      gap: 10px;
+    }
+    #left-panel {
+      flex: 3;
+      background: #e7f0f0;
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+    }
+    #right-panel {
+      flex: 2;
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 10px 14px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+    }
+    h1 {
+      margin: 0 0 6px 0;
+      font-size: 20px;
+      font-weight: 500;
+    }
+    h2 {
+      margin: 10px 0 4px 0;
+      font-size: 16px;
+      font-weight: 500;
+    }
+    h3 {
+      margin: 8px 0 4px 0;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    p {
+      margin: 4px 0;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    #riverCanvas {
+      flex: 1;
+      border-radius: 6px;
+      border: 1px solid #b5c3c3;
+      background: #f7f4e9;
+    }
+    #top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .btn-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    button {
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #f0f0f0;
+      cursor: pointer;
+      padding: 4px 10px;
+      font-size: 13px;
+    }
+    button:hover {
+      background: #e0e0e0;
+    }
+    button:active {
+      transform: translateY(1px);
+    }
+    .tool-btn.active {
+      background: #dbe7ff;
+      border-color: #6580c7;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      margin: 2px 0;
+    }
+    .stat-label {
+      color: #555;
+    }
+    .stat-value {
+      color: #222;
+      min-width: 80px;
+      text-align: right;
+    }
+    .slider-row {
+      margin: 4px 0 8px 0;
+    }
+    .slider-row label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    .message-box {
+      margin-top: 6px;
+      padding: 6px;
+      font-size: 13px;
+      border-radius: 4px;
+      border: 1px solid #d0d0d0;
+      background: #fbfbfb;
+      min-height: 40px;
+    }
+    details {
+      margin-top: 6px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      padding: 4px 8px;
+      background: #fafafa;
+      font-size: 13px;
+    }
+    summary {
+      cursor: pointer;
+      font-size: 13px;
+      outline: none;
+    }
+    ul {
+      margin: 4px 0 4px 18px;
+      padding: 0;
+    }
+    li {
+      margin-bottom: 2px;
+    }
+    code {
+      font-size: 12px;
+      background: #f0f0f0;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 4px 0;
+      font-size: 12px;
+      align-items: center;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .legend-color {
+      width: 14px;
+      height: 6px;
+      border-radius: 2px;
+      border: 1px solid #999;
+    }
+    .legend-river { background: #4a8dd8; }
+    .legend-erosion { background: #d35a4a; }
+    .legend-deposition { background: #e3c95a; }
+    .legend-oxbow { background: #7fb3d5; }
+    .legend-town { background: #888; }
+    .legend-levee { background: #6c5ce7; }
+  </style>
+</head>
+<body>
+<!-- 給老師看的說明（學生看不到這段）
+- 初始河道：中段 2 個較長的曲流彎，上下游近似直線。
+- 演化規則：上游加權曲率控制凹岸侵蝕、凸岸堆積，可形成牛軛湖（neck cutoff）。
+- 護岸：
+  * 學生必須在聚落附近點選才會設置。
+  * 護岸位置與方向固定，跟聚落一起「待在那裡」，不會跟著河床跑。
+  * 河段靠近護岸時，側向遷移速率乘上減弱係數。
+- 河流自左向右，水面是帶狀「面」，寬度隨流量變化。
+-->
+
+<div id="game-container">
+  <div id="left-panel">
+    <div id="top-bar">
+      <h1>曲流互動小遊戲：護岸與聚落風險</h1>
+      <div class="btn-group">
+        <button id="startBtn">開始</button>
+        <button id="pauseBtn">暫停</button>
+        <button id="resetBtn">重新開始</button>
+        <button id="zoomInBtn">放大</button>
+        <button id="zoomOutBtn">縮小</button>
+      </div>
+    </div>
+    <canvas id="riverCanvas" width="800" height="520"></canvas>
+  </div>
+
+  <div id="right-panel">
+    <h2>模擬狀態</h2>
+    <div class="stat-row">
+      <div class="stat-label">年份（回合）</div>
+      <div class="stat-value" id="yearDisplay">0 年</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label">初始蜿蜒度</div>
+      <div class="stat-value" id="initialSinuosityDisplay">1.00</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label">目前蜿蜒度</div>
+      <div class="stat-value" id="sinuosityDisplay">1.00</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label">目標蜿蜒度</div>
+      <div class="stat-value" id="targetSinuosityDisplay">3</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label">最近聚落距河距離</div>
+      <div class="stat-value" id="townDistanceDisplay">—</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label">聚落存活數</div>
+      <div class="stat-value" id="townStatusDisplay">7 / 7</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label">已設置護岸數量</div>
+      <div class="stat-value" id="leveeStatusDisplay">0 / 5</div>
+    </div>
+
+    <h2>全域參數（整段河道）</h2>
+    <div class="slider-row">
+      <label>
+        流量（Q）
+        <span id="flowValue"></span>
+      </label>
+      <input type="range" id="flowSlider" min="1" max="5" step="0.5">
+      <p>流量越大，凹岸側向侵蝕越強，水面越寬，曲流成長越快。</p>
+    </div>
+    <div class="slider-row">
+      <label>
+        坡降（S）
+        <span id="slopeValue"></span>
+      </label>
+      <input type="range" id="slopeSlider" min="0.1" max="1" step="0.1">
+      <p>坡降越大，河水能量越強，侵蝕速度較快。</p>
+    </div>
+    <div class="slider-row">
+      <label>
+        河岸抗蝕性
+        <span id="bankResValue"></span>
+      </label>
+      <input type="range" id="bankResSlider" min="0.5" max="2" step="0.1">
+      <p>河岸抗蝕性越高，側向侵蝕越慢。</p>
+    </div>
+
+    <h2>互動工具</h2>
+    <div class="btn-group" style="margin-bottom:4px;">
+      <button id="modeSelectBtn" class="tool-btn">選取河段／調整侵蝕</button>
+      <button id="modeLeveeBtn" class="tool-btn">設置護岸工程</button>
+    </div>
+    <p>護岸模式下，在想保護的聚落附近點選，可設置或移除「平行河道」的護岸，每局有數量上限。</p>
+
+    <h2>局部參數（單一河段）</h2>
+    <p>在「選取河段」模式下點選河道，可調整該處局部侵蝕係數（代表河岸材料鬆硬）。</p>
+    <div class="slider-row">
+      <label>
+        局部侵蝕係數
+        <span id="localErosionValue"></span>
+      </label>
+      <input type="range" id="localErosionSlider" min="0.5" max="2" step="0.1" disabled>
+      <p>大於 1 表示較易侵蝕，小於 1 表示較穩定。</p>
+    </div>
+
+    <h2>圖例與概念</h2>
+    <div class="legend-row">
+      <div class="legend-item">
+        <div class="legend-color legend-river"></div><span>目前河道水面與中心線</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background:#cccccc;"></div><span>初始河道中心線（虛線）</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color legend-erosion"></div><span>凹岸外側侵蝕</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color legend-deposition"></div><span>凸岸內側堆積</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color legend-oxbow"></div><span>牛軛湖</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color legend-town"></div><span>聚落</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color legend-levee"></div><span>護岸工程</span>
+      </div>
+    </div>
+
+    <h2>遊戲訊息</h2>
+    <div class="message-box" id="messageBox">
+      按「開始」啟動。觀察曲流演化與牛軛湖形成，並決定在哪些聚落附近設置平行於河道的護岸。
+    </div>
+
+    <details>
+      <summary>規則與教學提示</summary>
+      <h3>基本規則</h3>
+      <ul>
+        <li>每一步代表一年，右上角顯示累積年份。</li>
+        <li>河道依上游加權曲率進行側向遷移：凹岸侵蝕、凸岸堆積，彎曲加深後可截彎取直形成牛軛湖。</li>
+        <li>灰色虛線為初始河道，藍色帶狀為目前水面，可比較形狀與蜿蜒度變化。</li>
+      </ul>
+      <h3>聚落與護岸</h3>
+      <ul>
+        <li>共有七個聚落分布在不同位置，有的靠近彎道、有的在較直河段。</li>
+        <li>若河道侵蝕到聚落附近（距離過小），該聚落視為被破壞。</li>
+        <li>護岸綁定在聚落面向河川的一側，位置與方向固定，只影響附近河岸的側向遷移速率。</li>
+      </ul>
+      <h3>勝負條件</h3>
+      <ul>
+        <li>勝利：在模擬年限內，蜿蜒度達標，且至少有五個聚落存活。</li>
+        <li>失敗：七個聚落全部被破壞，或超過年限仍未達目標蜿蜒度。</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<script>
+  // ==========================
+  // 可調參數（教師可改）
+  // ==========================
+  const CONFIG = {
+    initialFlow: 10,
+    initialSlope: 0.4,
+    initialBankRes: 1.0,
+
+    // 曲流成長速度與單步側向位移
+    migrationCoefficient: 100,
+    maxMigrationPerStep: 2.2,
+
+    // neck cutoff 門檻與點距間隔
+    cutoffDistance: 20,
+    minIndexGap: 5,
+
+    targetSinuosity: 5,
+    maxYears: 600,
+
+    // 控制點數量（愈多愈細緻）
+    numPoints: 40,
+
+    // 上游加權曲率
+    upstreamWeights: [0.6, 0.3, 0.1],
+
+    // 護岸相關
+    maxLevees: 5,
+    leveeReductionFactor: 0.3
+  };
+
+  const canvas = document.getElementById("riverCanvas");
+  const ctx = canvas.getContext("2d");
+
+  let riverPoints = [];
+  let initialRiverPoints = [];
+  let initialSinuosity = 1.0;
+  let oxbowLakes = [];
+  let selectedIndex = -1;
+  let running = false;
+  let timerId = null;
+  let year = 0;
+  let gameOver = false;
+  let winStatus = null;
+
+  let towns = [];
+  // levees：固定在空間、綁定聚落
+  // { townIndex, cx, cy, tx, ty, halfLen }
+  let levees = [];
+
+  let globalFlow = CONFIG.initialFlow;
+  let globalSlope = CONFIG.initialSlope;
+  let globalBankRes = CONFIG.initialBankRes;
+  let interactionMode = "select";
+
+  // 畫面縮放
+  let zoomFactor = 1.0;
+  const MIN_ZOOM = 0.6;
+  const MAX_ZOOM = 2.5;
+  const ZOOM_STEP = 0.2;
+
+  const yearDisplay = document.getElementById("yearDisplay");
+  const sinuosityDisplay = document.getElementById("sinuosityDisplay");
+  const initialSinuosityDisplay = document.getElementById("initialSinuosityDisplay");
+  const targetSinuosityDisplay = document.getElementById("targetSinuosityDisplay");
+  const townDistanceDisplay = document.getElementById("townDistanceDisplay");
+  const townStatusDisplay = document.getElementById("townStatusDisplay");
+  const leveeStatusDisplay = document.getElementById("leveeStatusDisplay");
+  const messageBox = document.getElementById("messageBox");
+
+  const flowSlider = document.getElementById("flowSlider");
+  const slopeSlider = document.getElementById("slopeSlider");
+  const bankResSlider = document.getElementById("bankResSlider");
+  const localErosionSlider = document.getElementById("localErosionSlider");
+
+  const flowValue = document.getElementById("flowValue");
+  const slopeValue = document.getElementById("slopeValue");
+  const bankResValue = document.getElementById("bankResValue");
+  const localErosionValue = document.getElementById("localErosionValue");
+
+  const startBtn = document.getElementById("startBtn");
+  const pauseBtn = document.getElementById("pauseBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const modeSelectBtn = document.getElementById("modeSelectBtn");
+  const modeLeveeBtn = document.getElementById("modeLeveeBtn");
+  const zoomInBtn = document.getElementById("zoomInBtn");
+  const zoomOutBtn = document.getElementById("zoomOutBtn");
+
+  function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+  function normalizeVec(x, y) {
+    const len = Math.hypot(x, y);
+    if (len === 0) return { x: 0, y: 0 };
+    return { x: x / len, y: y / len };
+  }
+  function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+    const t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+    const tt = clamp(t, 0, 1);
+    const qx = x1 + tt * dx, qy = y1 + tt * dy;
+    return Math.hypot(px - qx, py - qy);
+  }
+
+  function computeSinuosityFrom(points) {
+    if (points.length < 2) return { sinuosity: 1, length: 0, straight: 0 };
+    let length = 0;
+    for (let i = 1; i < points.length; i++) {
+      length += distance(points[i - 1], points[i]);
+    }
+    const straight = distance(points[0], points[points.length - 1]);
+    const sinuosity = straight > 0 ? length / straight : 1;
+    return { sinuosity, length, straight };
+  }
+
+  function computeSinuosity() {
+    return computeSinuosityFrom(riverPoints);
+  }
+
+  function computeTownDistanceFor(town) {
+    if (riverPoints.length < 2) return Infinity;
+    let minD = Infinity;
+    for (let i = 1; i < riverPoints.length; i++) {
+      const p1 = riverPoints[i - 1], p2 = riverPoints[i];
+      const d = pointToSegmentDistance(town.x, town.y, p1.x, p1.y, p2.x, p2.y);
+      if (d < minD) minD = d;
+    }
+    return minD;
+  }
+
+  function computeOverallMinTownDistance() {
+    let minD = Infinity;
+    towns.forEach(t => {
+      if (t.destroyed) return;
+      const d = computeTownDistanceFor(t);
+      if (d < minD) minD = d;
+    });
+    return minD;
+  }
+
+  // ===================
+  // 初始河道與聚落
+  // ===================
+  function initRiver() {
+    riverPoints = [];
+    initialRiverPoints = [];
+    oxbowLakes = [];
+    levees = [];
+    selectedIndex = -1;
+    gameOver = false;
+    winStatus = null;
+    year = 0;
+
+    const n = CONFIG.numPoints;
+    const startX = 60, endX = canvas.width - 60;
+    const baseY = canvas.height / 2;
+    const totalX = endX - startX;
+
+    // 中段 80% 為兩個較「長條」的彎，上下游近似直線
+    const meanderStart = 0.10;
+    const meanderEnd   = 0.90;
+    const amp = 90;
+
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1); // 0~1
+      const x = startX + t * totalX;
+      let y = baseY;
+
+      if (t >= meanderStart && t <= meanderEnd) {
+        const tau = (t - meanderStart) / (meanderEnd - meanderStart); // 0~1
+        // 兩個完整波：可產生 2 個長弧形彎道，方便發展牛軛湖
+        y = baseY + Math.sin(tau * 2 * Math.PI) * amp;
+      }
+
+      riverPoints.push({ x, y, erosionFactor: 1.0 });
+    }
+
+    initialRiverPoints = riverPoints.map(p => ({ x: p.x, y: p.y }));
+    initialSinuosity = computeSinuosityFrom(initialRiverPoints).sinuosity;
+    initialSinuosityDisplay.textContent = initialSinuosity.toFixed(2);
+
+    initTowns();
+    updateStatsAndDraw();
+  }
+
+  function initTowns() {
+    towns = [];
+    function placeTown(frac, side, name) {
+      const idx = clamp(Math.floor(CONFIG.numPoints * frac), 1, CONFIG.numPoints - 2);
+      const pPrev = riverPoints[idx - 1];
+      const p = riverPoints[idx];
+      const pNext = riverPoints[idx + 1];
+
+      const vPrev = normalizeVec(p.x - pPrev.x, p.y - pPrev.y);
+      const vNext = normalizeVec(pNext.x - p.x, pNext.y - p.y);
+      const tangent = normalizeVec(pNext.x - pPrev.x, pNext.y - pPrev.y);
+      const normal = { x: -tangent.y, y: tangent.x };
+      const cross = vPrev.x * vNext.y - vPrev.y * vNext.x;
+      const sign = cross >= 0 ? -1 : 1; // 反向約定，讓 sign 對應凹岸方向
+
+      const offset = 42;
+      let ox = p.x, oy = p.y;
+      if (side === "outer") {
+        ox = p.x + normal.x * offset * sign;
+        oy = p.y + normal.y * offset * sign;
+      } else if (side === "inner") {
+        ox = p.x - normal.x * offset * sign;
+        oy = p.y - normal.y * offset * sign;
+      }
+      towns.push({ x: ox, y: oy, name, destroyed: false });
+    }
+    // outer/inner 給老師判讀凹岸／凸岸位置用，學生只看到聚落名稱
+    placeTown(0.12, "outer", "聚落一");
+    placeTown(0.22, "inner", "聚落二");
+    placeTown(0.36, "outer", "聚落三");
+    placeTown(0.48, "inner", "聚落四");
+    placeTown(0.62, "outer", "聚落五");
+    placeTown(0.78, "inner", "聚落六");
+    placeTown(0.90, "outer", "聚落七");
+  }
+
+  // =========
+  // 護岸幾何與影響
+  // =========
+  function leveeEndpoints(l) {
+    const ax = l.cx - l.tx * l.halfLen;
+    const ay = l.cy - l.ty * l.halfLen;
+    const bx = l.cx + l.tx * l.halfLen;
+    const by = l.cy + l.ty * l.halfLen;
+    return { ax, ay, bx, by };
+  }
+
+  const LEVEE_INFLUENCE_RADIUS = 25;
+
+  function getLeveeFactorAtPoint(p) {
+    let factor = 1.0;
+    for (const l of levees) {
+      const { ax, ay, bx, by } = leveeEndpoints(l);
+      const d = pointToSegmentDistance(p.x, p.y, ax, ay, bx, by);
+      if (d < LEVEE_INFLUENCE_RADIUS) {
+        factor = Math.min(factor, CONFIG.leveeReductionFactor);
+      }
+    }
+    return factor;
+  }
+
+  // =========
+  // 繪圖
+  // =========
+  function drawScene() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(zoomFactor, zoomFactor);
+    ctx.translate(-cx, -cy);
+
+    ctx.fillStyle = "#f7f4e9";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    drawInitialRiver();
+    drawFlowBand();
+    drawOxbowLakes();
+    drawRiverWithErosionDeposition();
+    drawLevees();
+    drawTowns();
+
+    if (selectedIndex >= 0 && selectedIndex < riverPoints.length) {
+      const p = riverPoints[selectedIndex];
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawInitialRiver() {
+    if (initialRiverPoints.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(initialRiverPoints[0].x, initialRiverPoints[0].y);
+    for (let i = 1; i < initialRiverPoints.length; i++) {
+      ctx.lineTo(initialRiverPoints[i].x, initialRiverPoints[i].y);
+    }
+    ctx.save();
+    ctx.strokeStyle = "#cccccc";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 河道水面：寬度隨流量變化
+  function drawFlowBand() {
+    const n = riverPoints.length;
+    if (n < 2) return;
+
+    const baseHalfWidth = 8;
+    const flowScale = 3;
+    const halfWidth = baseHalfWidth + flowScale * (globalFlow - 1);
+
+    const leftPts = [];
+    const rightPts = [];
+
+    for (let i = 0; i < n; i++) {
+      let pPrev, pNext;
+      if (i === 0) {
+        pPrev = riverPoints[i];
+        pNext = riverPoints[i + 1];
+      } else if (i === n - 1) {
+        pPrev = riverPoints[i - 1];
+        pNext = riverPoints[i];
+      } else {
+        pPrev = riverPoints[i - 1];
+        pNext = riverPoints[i + 1];
+      }
+      const p = riverPoints[i];
+      const tangent = normalizeVec(pNext.x - pPrev.x, pNext.y - pPrev.y);
+      const normal = { x: -tangent.y, y: tangent.x };
+
+      const lx = p.x - normal.x * halfWidth;
+      const ly = p.y - normal.y * halfWidth;
+      const rx = p.x + normal.x * halfWidth;
+      const ry = p.y + normal.y * halfWidth;
+
+      leftPts.push({ x: lx, y: ly });
+      rightPts.push({ x: rx, y: ry });
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(leftPts[0].x, leftPts[0].y);
+    for (let i = 1; i < n; i++) ctx.lineTo(leftPts[i].x, leftPts[i].y);
+    for (let i = n - 1; i >= 0; i--) ctx.lineTo(rightPts[i].x, rightPts[i].y);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(74,141,216,0.35)";
+    ctx.fill();
+  }
+
+  function drawRiverWithErosionDeposition() {
+    if (riverPoints.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(riverPoints[0].x, riverPoints[0].y);
+    for (let i = 1; i < riverPoints.length; i++) {
+      ctx.lineTo(riverPoints[i].x, riverPoints[i].y);
+    }
+    ctx.strokeStyle = "#4a8dd8";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    for (let i = 1; i < riverPoints.length - 1; i++) {
+      const pPrev = riverPoints[i - 1];
+      const p = riverPoints[i];
+      const pNext = riverPoints[i + 1];
+
+      const vPrev = normalizeVec(p.x - pPrev.x, p.y - pPrev.y);
+      const vNext = normalizeVec(pNext.x - p.x, pNext.y - p.y);
+      const dot = clamp(vPrev.x * vNext.x + vPrev.y * vNext.y, -1, 1);
+      const angle = Math.acos(dot);
+      if (angle < 0.05) continue;
+
+      const cross = vPrev.x * vNext.y - vPrev.y * vNext.x;
+      const tangent = normalizeVec(pNext.x - pPrev.x, pNext.y - pPrev.y);
+      const normal = { x: -tangent.y, y: tangent.x };
+      const sign = cross >= 0 ? -1 : 1;
+
+      const offset = 10 + 25 * angle;
+      const outer = { x: p.x + normal.x * offset * sign, y: p.y + normal.y * offset * sign };
+      const inner = { x: p.x - normal.x * offset * sign, y: p.y - normal.y * offset * sign };
+
+      ctx.beginPath();
+      ctx.arc(outer.x, outer.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(211,90,74,0.85)";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(inner.x, inner.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(227,201,90,0.9)";
+      ctx.fill();
+    }
+  }
+
+  function drawOxbowLakes() {
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#7fb3d5";
+    ctx.fillStyle = "rgba(127,179,213,0.5)";
+    oxbowLakes.forEach(seg => {
+      if (seg.length < 3) return;
+      ctx.beginPath();
+      ctx.moveTo(seg[0].x, seg[0].y);
+      for (let i = 1; i < seg.length; i++) ctx.lineTo(seg[i].x, seg[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+
+  function drawTowns() {
+    const size = 14;
+    ctx.font = "12px system-ui";
+    towns.forEach(t => {
+      ctx.fillStyle = t.destroyed ? "#bbbbbb" : "#777777";
+      ctx.fillRect(t.x - size / 2, t.y - size / 2, size, size);
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(t.x - size / 2, t.y - size / 2, size, size);
+      ctx.fillStyle = "#222";
+      const label = t.name + (t.destroyed ? "（毀）" : "");
+      ctx.fillText(label, t.x + size / 2 + 4, t.y + 4);
+    });
+  }
+
+  function drawLevees() {
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#6c5ce7";
+    levees.forEach(l => {
+      const { ax, ay, bx, by } = leveeEndpoints(l);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    });
+  }
+
+  // =========
+  // 核心：曲流演化（上游加權曲率）
+  // =========
+  function stepSimulation() {
+    if (!running || gameOver) return;
+    const n = riverPoints.length;
+    if (n < 3) return;
+
+    const newPts = riverPoints.map(p => ({ ...p }));
+    const localCurv = new Array(n).fill(0);
+
+    // 計算局部曲率（有號）：正負代表左右彎向，大小代表彎曲程度
+    for (let i = 1; i < n - 1; i++) {
+      const pPrev = riverPoints[i - 1];
+      const p = riverPoints[i];
+      const pNext = riverPoints[i + 1];
+
+      const vPrev = normalizeVec(p.x - pPrev.x, p.y - pPrev.y);
+      const vNext = normalizeVec(pNext.x - p.x, pNext.y - p.y);
+      const dot = clamp(vPrev.x * vNext.x + vPrev.y * vNext.y, -1, 1);
+      const angle = Math.acos(dot);
+      if (angle < 0.001) {
+        localCurv[i] = 0;
+        continue;
+      }
+      const cross = vPrev.x * vNext.y - vPrev.y * vNext.x;
+      const sign = cross >= 0 ? -1 : 1; // 維持原本凹岸／凸岸方向約定
+      const segLen1 = distance(p, pPrev);
+      const segLen2 = distance(pNext, p);
+      const avgLen = (segLen1 + segLen2) / 2 || 1;
+      const kMag = angle / avgLen;
+      localCurv[i] = sign * kMag;
+    }
+
+    const w = CONFIG.upstreamWeights;
+
+    // 根據上游加權曲率，決定各點側向遷移
+    for (let i = 2; i < n - 2; i++) {
+      const pPrev = riverPoints[i - 1];
+      const p = riverPoints[i];
+      const pNext = riverPoints[i + 1];
+
+      const k0 = localCurv[i];
+      const k1 = localCurv[i - 1];
+      const k2 = localCurv[i - 2];
+      const kEff = w[0] * k0 + w[1] * k1 + w[2] * k2;
+      if (Math.abs(kEff) < 1e-5) continue;
+
+      const tangent = normalizeVec(pNext.x - pPrev.x, pNext.y - pPrev.y);
+      const normal = { x: -tangent.y, y: tangent.x };
+      const dirSign = kEff >= 0 ? 1 : -1;
+
+      const flowEffect = globalFlow;
+      const slopeEffect = globalSlope;
+      const resistanceEffect = 1 / globalBankRes;
+
+      // 看這個點離護岸多近，決定削弱係數
+      const leveeFactor = getLeveeFactorAtPoint(p);
+
+      const localFactor = p.erosionFactor * leveeFactor;
+
+      let migration =
+        CONFIG.migrationCoefficient *
+        Math.abs(kEff) *
+        flowEffect *
+        slopeEffect *
+        resistanceEffect *
+        localFactor;
+
+      migration = clamp(migration, -CONFIG.maxMigrationPerStep, CONFIG.maxMigrationPerStep);
+
+      newPts[i].x += normal.x * migration * dirSign;
+      newPts[i].y += normal.y * migration * dirSign;
+    }
+
+    // 平滑化避免折線過尖
+    for (let i = 1; i < n - 1; i++) {
+      const pPrev = newPts[i - 1];
+      const p = newPts[i];
+      const pNext = newPts[i + 1];
+      const s = 0.1;
+      newPts[i].x = p.x * (1 - s) + ((pPrev.x + pNext.x) / 2) * s;
+      newPts[i].y = p.y * (1 - s) + ((pPrev.y + pNext.y) / 2) * s;
+    }
+
+    riverPoints = newPts;
+    checkAndCreateOxbow();
+    year += 1;
+    updateStatsAndDraw();
+    checkWinLose();
+  }
+
+  function checkAndCreateOxbow() {
+    const cutoff = CONFIG.cutoffDistance;
+    const minGap = CONFIG.minIndexGap;
+    let cutPair = null;
+
+    for (let i = 0; i < riverPoints.length; i++) {
+      for (let j = i + minGap; j < riverPoints.length; j++) {
+        if (distance(riverPoints[i], riverPoints[j]) < cutoff) {
+          cutPair = { i, j };
+          break;
+        }
+      }
+      if (cutPair) break;
+    }
+    if (!cutPair) return;
+
+    const { i, j } = cutPair;
+    const seg = [];
+    for (let k = i; k <= j; k++) seg.push({ x: riverPoints[k].x, y: riverPoints[k].y });
+    oxbowLakes.push(seg);
+
+    const newRiver = [];
+    for (let k = 0; k <= i; k++) newRiver.push({ ...riverPoints[k] });
+    for (let k = j; k < riverPoints.length; k++) newRiver.push({ ...riverPoints[k] });
+
+    if (i > 0 && j < riverPoints.length - 1) {
+      const a = riverPoints[i];
+      const b = riverPoints[j];
+      const midIndex = i;
+      newRiver[midIndex].x = (a.x + b.x) / 2;
+      newRiver[midIndex].y = (a.y + b.y) / 2;
+    }
+    riverPoints = newRiver;
+  }
+
+  function updateStatsAndDraw() {
+    const { sinuosity } = computeSinuosity();
+    const minTownDist = computeOverallMinTownDistance();
+    const alive = towns.filter(t => !t.destroyed).length;
+
+    yearDisplay.textContent = year + " 年";
+    sinuosityDisplay.textContent = sinuosity.toFixed(2);
+    targetSinuosityDisplay.textContent = CONFIG.targetSinuosity.toFixed(2);
+    townDistanceDisplay.textContent = isFinite(minTownDist) ? minTownDist.toFixed(1) + " 像素" : "—";
+    townStatusDisplay.textContent = alive + " / " + towns.length;
+    leveeStatusDisplay.textContent = levees.length + " / " + CONFIG.maxLevees;
+
+    drawScene();
+  }
+
+  function checkWinLose() {
+    const { sinuosity } = computeSinuosity();
+    const erosionThreshold = 10;
+
+    towns.forEach(t => {
+      if (t.destroyed) return;
+      const d = computeTownDistanceFor(t);
+      if (d < erosionThreshold) t.destroyed = true;
+    });
+
+    const alive = towns.filter(t => !t.destroyed).length;
+
+    if (alive === 0) {
+      gameOver = true;
+      winStatus = "lose";
+      running = false;
+      messageBox.textContent = "七個聚落都受到侵蝕或改道影響，挑戰失敗。試試在不同聚落附近設置護岸。";
+      return;
+    }
+
+    if (sinuosity >= CONFIG.targetSinuosity && year <= CONFIG.maxYears && alive >= 5) {
+      gameOver = true;
+      winStatus = "win";
+      running = false;
+      messageBox.textContent =
+        "在年限內達到目標蜿蜒度，且至少五個聚落存活。比較灰色虛線與藍色河道，可以觀察曲流增強與牛軛湖形成後的截彎取直。";
+      return;
+    }
+
+    if (year > CONFIG.maxYears && sinuosity < CONFIG.targetSinuosity) {
+      gameOver = true;
+      winStatus = "lose";
+      running = false;
+      messageBox.textContent =
+        "超過模擬年限仍未達蜿蜒度。可調整流量、坡降或局部侵蝕係數，再試一次。";
+      return;
+    }
+
+    if (!gameOver) {
+      messageBox.textContent = "持續觀察曲流演化與牛軛湖形成，並思考哪些聚落風險較高、護岸要蓋在哪裡。";
+    }
+  }
+
+  // =========
+  // 互動：滑鼠／觸控
+  // =========
+  function canvasToPoint(evt) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (evt.clientY - rect.top) * (canvas.height / rect.height);
+    return { x, y };
+  }
+
+  function handleSelectPointClick(x, y) {
+    let closest = -1, minD = Infinity;
+    for (let i = 0; i < riverPoints.length; i++) {
+      const d = Math.hypot(riverPoints[i].x - x, riverPoints[i].y - y);
+      if (d < minD) { minD = d; closest = i; }
+    }
+    if (minD > 30) {
+      selectedIndex = -1;
+      localErosionSlider.disabled = true;
+      localErosionValue.textContent = "—";
+    } else {
+      selectedIndex = closest;
+      localErosionSlider.disabled = false;
+      localErosionSlider.value = riverPoints[selectedIndex].erosionFactor;
+      localErosionValue.textContent = riverPoints[selectedIndex].erosionFactor.toFixed(1);
+    }
+    drawScene();
+  }
+
+  function handleLeveeClick(x, y) {
+    // 1. 若點在現有護岸上，則移除
+    const removeIndex = levees.findIndex(l => Math.hypot(l.cx - x, l.cy - y) < 18);
+    if (removeIndex >= 0) {
+      levees.splice(removeIndex, 1);
+      messageBox.textContent = "已移除該處護岸工程。";
+      updateStatsAndDraw();
+      return;
+    }
+
+    // 2. 檢查數量上限
+    if (levees.length >= CONFIG.maxLevees) {
+      messageBox.textContent = "已達護岸工程數量上限，點選已設置處可移除後重新配置。";
+      return;
+    }
+
+    // 3. 找最近的聚落，要求在一定距離內才允許設置護岸
+    let nearestTownIndex = -1;
+    let minTownDist = Infinity;
+    for (let i = 0; i < towns.length; i++) {
+      const t = towns[i];
+      const d = Math.hypot(t.x - x, t.y - y);
+      if (d < minTownDist) {
+        minTownDist = d;
+        nearestTownIndex = i;
+      }
+    }
+
+    const TOWN_CLICK_RADIUS = 40;
+    if (minTownDist > TOWN_CLICK_RADIUS || nearestTownIndex === -1) {
+      messageBox.textContent = "請在想保護的聚落附近點選設置護岸（靠近聚落方可設置）。";
+      return;
+    }
+
+    const town = towns[nearestTownIndex];
+
+    // 4. 找出「此聚落最近的河道點」，用來決定護岸方向與朝向
+    let nearestRiverIndex = 0;
+    let minRiverDist = Infinity;
+    for (let i = 0; i < riverPoints.length; i++) {
+      const p = riverPoints[i];
+      const d = Math.hypot(p.x - town.x, p.y - town.y);
+      if (d < minRiverDist) {
+        minRiverDist = d;
+        nearestRiverIndex = i;
+      }
+    }
+
+    const idx = clamp(nearestRiverIndex, 1, riverPoints.length - 2);
+    const pPrev = riverPoints[idx - 1];
+    const p = riverPoints[idx];
+    const pNext = riverPoints[idx + 1];
+
+    // 河道切線（方向固定記錄下來，之後不再更新）
+    const tangent = normalizeVec(pNext.x - pPrev.x, pNext.y - pPrev.y);
+
+    // 從聚落指向河道的方向（護岸要在聚落面河川一側）
+    const toRiverVec = normalizeVec(p.x - town.x, p.y - town.y);
+
+    const offset = 18;
+    const cx = town.x + toRiverVec.x * offset;
+    const cy = town.y + toRiverVec.y * offset;
+    const halfLen = 18;
+
+    levees.push({
+      townIndex: nearestTownIndex,
+      cx,
+      cy,
+      tx: tangent.x,
+      ty: tangent.y,
+      halfLen
+    });
+
+    messageBox.textContent = "已在該聚落面河的一側設置平行護岸工程。";
+    updateStatsAndDraw();
+  }
+
+  canvas.addEventListener("click", evt => {
+    const p = canvasToPoint(evt);
+    if (interactionMode === "select") {
+      handleSelectPointClick(p.x, p.y);
+    } else if (interactionMode === "levee") {
+      handleLeveeClick(p.x, p.y);
+    }
+  });
+
+  canvas.addEventListener("touchstart", evt => {
+    const t = evt.touches[0];
+    if (!t) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (t.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (t.clientY - rect.top) * (canvas.height / rect.height);
+    if (interactionMode === "select") {
+      handleSelectPointClick(x, y);
+    } else if (interactionMode === "levee") {
+      handleLeveeClick(x, y);
+    }
+  });
+
+  flowSlider.addEventListener("input", () => {
+    globalFlow = parseFloat(flowSlider.value);
+    flowValue.textContent = globalFlow.toFixed(1);
+    drawScene();
+  });
+  slopeSlider.addEventListener("input", () => {
+    globalSlope = parseFloat(slopeSlider.value);
+    slopeValue.textContent = globalSlope.toFixed(1);
+  });
+  bankResSlider.addEventListener("input", () => {
+    globalBankRes = parseFloat(bankResSlider.value);
+    bankResValue.textContent = globalBankRes.toFixed(1);
+  });
+
+  localErosionSlider.addEventListener("input", () => {
+    if (selectedIndex < 0 || selectedIndex >= riverPoints.length) return;
+    const v = parseFloat(localErosionSlider.value);
+    riverPoints[selectedIndex].erosionFactor = v;
+    localErosionValue.textContent = v.toFixed(1);
+  });
+
+  function setInteractionMode(mode) {
+    interactionMode = mode;
+    modeSelectBtn.classList.toggle("active", mode === "select");
+    modeLeveeBtn.classList.toggle("active", mode === "levee");
+    if (mode === "select") {
+      messageBox.textContent = "目前為「選取河段／調整侵蝕」模式：點選河道後可調整局部侵蝕係數。";
+    } else {
+      messageBox.textContent = "目前為「設置護岸工程」模式：在想保護的聚落附近點選，可新增或移除平行護岸。";
+    }
+  }
+
+  modeSelectBtn.addEventListener("click", () => setInteractionMode("select"));
+  modeLeveeBtn.addEventListener("click", () => setInteractionMode("levee"));
+
+  startBtn.addEventListener("click", () => {
+    if (gameOver) {
+      initRiver();
+      gameOver = false;
+      winStatus = null;
+    }
+    running = true;
+    if (!timerId) timerId = setInterval(stepSimulation, 80);
+  });
+  pauseBtn.addEventListener("click", () => { running = false; });
+  resetBtn.addEventListener("click", () => {
+    running = false;
+    initRiver();
+    messageBox.textContent = "已重新開始。可先思考聚落位置與護岸配置，再按開始。";
+  });
+
+  zoomInBtn.addEventListener("click", () => {
+    zoomFactor = Math.min(MAX_ZOOM, zoomFactor + ZOOM_STEP);
+    drawScene();
+  });
+  zoomOutBtn.addEventListener("click", () => {
+    zoomFactor = Math.max(MIN_ZOOM, zoomFactor - ZOOM_STEP);
+    drawScene();
+  });
+
+  function initSliders() {
+    flowSlider.value = globalFlow;
+    slopeSlider.value = globalSlope;
+    bankResSlider.value = globalBankRes;
+    flowValue.textContent = globalFlow.toFixed(1);
+    slopeValue.textContent = globalSlope.toFixed(1);
+    bankResValue.textContent = globalBankRes.toFixed(1);
+    localErosionValue.textContent = "—";
+  }
+
+  function mainInit() {
+    initSliders();
+    targetSinuosityDisplay.textContent = CONFIG.targetSinuosity.toFixed(2);
+    setInteractionMode("select");
+    initRiver();
+  }
+
+  mainInit();
+</script>
+</body>
+</html>
